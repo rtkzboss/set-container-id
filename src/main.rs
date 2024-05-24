@@ -29,31 +29,12 @@ struct Args {
     ///
     /// Defaults to the container file name, excluding the extension, platform ID, and patch designator. This is the same value Unreal uses
     id: Option<String>,
-    // id: Option<UserContainerId>,
 
     /// Rewrite the container even if its ID is already the requested one
     #[clap(long)]
     force: bool,
 }
-/*
-#[derive(Debug, Clone)]
-struct UserContainerId {
-    inner: FIoContainerId,
-}
-impl str::FromStr for UserContainerId {
-    type Err = !;
-    fn from_str(input: &str) -> Result<Self, !> {
-        let inner = if input.len() == 16 && let Ok(n) = u64::from_str_radix(input, 16) {
-            FIoContainerId::from_value(n)
-        } else {
-            FIoContainerId::from_name(input)
-        };
-        Ok(Self {
-            inner,
-        })
-    }
-}
-*/
+
 fn byte_pos<'a, T>(all: &'a [u8], of: &'a T) -> usize {
     (of as *const T as *const u8).addr() - all.as_ptr().addr()
 }
@@ -93,8 +74,6 @@ async fn main() -> Result<()> {
         .open(toc_path(container_path)).await
         .context("opening toc")?;
 
-    // let toc_data = read_toc_async(&path).await
-    //     .context("reading toc")?;
     let mut toc_data = Vec::new();
     toc_file.read_to_end(&mut toc_data).await
         .context("reading toc")?;
@@ -130,9 +109,6 @@ async fn main() -> Result<()> {
     let new_header_chunk = FIoChunkId::container_header(new_container_id);
     let header_chunk_index = toc.find_chunk(&old_header_chunk)
         .context("missing container header chunk")?;
-    // if header_chunk_index != toc.chunk_ids.len() - 1 {
-    //     bail!("non-trailing container header is unimplemented")
-    // }
 
     let header_chunk_range = toc.offset_length(header_chunk_index)
         .context("malformed toc")?
@@ -222,8 +198,8 @@ async fn main() -> Result<()> {
 
     // write out the first compression block of the container header
     container_file.seek(SeekFrom::Start(first_block_offset)).await?;
-    // pad out to aligned length
     if let Cow::Owned(bytes) = &mut new_first_block_compressed {
+        // pad out to aligned length
         bytes.resize(new_first_block_aligned_compressed_size.try_into().unwrap(), 0);
     }
     container_file.write_all(&new_first_block_compressed).await?;

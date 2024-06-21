@@ -21,3 +21,6 @@ Options:
   -h, --help
           Print help (see a summary with '-h')
 ```
+
+## Oodle
+Does not currently support oodle compression. If you see `todo: oodle compression`, set the `Pak File Compression Format` to `Zlib` in Unreal's advanced packaging settings, and the tool should work (at the expense of a slightly larger pak file). 

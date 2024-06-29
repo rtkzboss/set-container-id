@@ -33,6 +33,10 @@ struct Args {
     /// Rewrite the container even if its ID is already the requested one
     #[clap(long)]
     force: bool,
+
+    /// Leave the container untouched and print out what would be done.
+    #[clap(long)]
+    dry_run: bool,
 }
 
 fn byte_pos<'a, T>(all: &'a [u8], of: &'a T) -> usize {
@@ -124,13 +128,17 @@ async fn main() -> Result<()> {
 
     // rewrite container id in toc header
     let toc_header_loc = byte_pos(&toc_data, &toc.header.container_id);
-    toc_file.seek(SeekFrom::Start(toc_header_loc.try_into().unwrap())).await?;
-    toc_file.write_all(new_container_id.as_bytes()).await?;
+    if !args.dry_run {
+        toc_file.seek(SeekFrom::Start(toc_header_loc.try_into().unwrap())).await?;
+        toc_file.write_all(new_container_id.as_bytes()).await?;
+    }
 
     // rewrite container header chunk id in toc chunk list
     let chunk_id_loc = byte_pos(&toc_data, &toc.chunk_ids[header_chunk_index]);
-    toc_file.seek(SeekFrom::Start(chunk_id_loc.try_into().unwrap())).await?;
-    toc_file.write_all(new_header_chunk.as_bytes()).await?;
+    if !args.dry_run {
+        toc_file.seek(SeekFrom::Start(chunk_id_loc.try_into().unwrap())).await?;
+        toc_file.write_all(new_header_chunk.as_bytes()).await?;
+    }
 
     // rewrite container id in container header data
     let header_container_offset = byte_pos(&header_data, &header_props.container_id);
@@ -168,41 +176,45 @@ async fn main() -> Result<()> {
     const BUFFER_SIZE_64: u64 = BUFFER_SIZE as u64;
     let mut buf = [0u8; BUFFER_SIZE];
     let old_first_block_end = first_block_offset + u64::from(old_first_block_entry.aligned_compressed_size_u32());
-    if delta_len > 0 {
-        eprintln!("growing initial container header compression block by {len_shift} B");
-        // copy forward, starting at end
-        let mut pos = container_file.seek(SeekFrom::End(0)).await?;
-        while pos > old_first_block_end {
-            let new_pos = pos.saturating_sub(BUFFER_SIZE_64).max(old_first_block_end);
-            let len = usize::try_from(pos - new_pos).unwrap();
-            container_file.seek(SeekFrom::Start(new_pos)).await?;
-            container_file.read_exact(&mut buf[..len]).await?;
-            container_file.seek(SeekFrom::Start(new_pos + len_shift)).await?;
-            container_file.write_all(&buf[..len]).await?;
-            pos = new_pos;
+    if !args.dry_run {
+        if delta_len > 0 {
+            eprintln!("growing initial container header compression block by {len_shift} B");
+            // copy forward, starting at end
+            let mut pos = container_file.seek(SeekFrom::End(0)).await?;
+            while pos > old_first_block_end {
+                let new_pos = pos.saturating_sub(BUFFER_SIZE_64).max(old_first_block_end);
+                let len = usize::try_from(pos - new_pos).unwrap();
+                container_file.seek(SeekFrom::Start(new_pos)).await?;
+                container_file.read_exact(&mut buf[..len]).await?;
+                container_file.seek(SeekFrom::Start(new_pos + len_shift)).await?;
+                container_file.write_all(&buf[..len]).await?;
+                pos = new_pos;
+            }
+        } else if delta_len < 0 {
+            eprintln!("shrinking initial container header compression block by {len_shift} B");
+            // copy backward, starting at beginning
+            let mut pos = old_first_block_end;
+            loop {
+                container_file.seek(SeekFrom::Start(pos)).await?;
+                let n = container_file.read(&mut buf).await?;
+                if n == 0 { break }
+                container_file.seek(SeekFrom::Start(pos - len_shift)).await?;
+                container_file.write_all(&buf[..n]).await?;
+                pos += u64::try_from(n).unwrap();
+            }
+            container_file.set_len(pos).await?;
         }
-    } else if delta_len < 0 {
-        eprintln!("shrinking initial container header compression block by {len_shift} B");
-        // copy backward, starting at beginning
-        let mut pos = old_first_block_end;
-        loop {
-            container_file.seek(SeekFrom::Start(pos)).await?;
-            let n = container_file.read(&mut buf).await?;
-            if n == 0 { break }
-            container_file.seek(SeekFrom::Start(pos - len_shift)).await?;
-            container_file.write_all(&buf[..n]).await?;
-            pos += u64::try_from(n).unwrap();
-        }
-        container_file.set_len(pos).await?;
     }
 
-    // write out the first compression block of the container header
-    container_file.seek(SeekFrom::Start(first_block_offset)).await?;
-    if let Cow::Owned(bytes) = &mut new_first_block_compressed {
-        // pad out to aligned length
-        bytes.resize(new_first_block_aligned_compressed_size.try_into().unwrap(), 0);
+    if !args.dry_run {
+        // write out the first compression block of the container header
+        container_file.seek(SeekFrom::Start(first_block_offset)).await?;
+        if let Cow::Owned(bytes) = &mut new_first_block_compressed {
+            // pad out to aligned length
+            bytes.resize(new_first_block_aligned_compressed_size.try_into().unwrap(), 0);
+        }
+        container_file.write_all(&new_first_block_compressed).await?;
     }
-    container_file.write_all(&new_first_block_compressed).await?;
 
     // finally, update all the compression block entries in the toc
     let new_block_entries = toc.compression_blocks[first_block_index..].iter()
@@ -224,8 +236,10 @@ async fn main() -> Result<()> {
         })
         .collect::<Vec<_>>();
     let first_block_entry_offset = byte_pos(&toc_data, old_first_block_entry);
-    toc_file.seek(SeekFrom::Start(first_block_entry_offset.try_into().unwrap())).await?;
-    toc_file.write_all(new_block_entries.as_bytes()).await?;
+    if !args.dry_run {
+        toc_file.seek(SeekFrom::Start(first_block_entry_offset.try_into().unwrap())).await?;
+        toc_file.write_all(new_block_entries.as_bytes()).await?;
+    }
 
     eprintln!("done");
     Ok(())

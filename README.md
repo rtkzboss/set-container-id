@@ -18,11 +18,20 @@ Options:
       --force
           Rewrite the container even if its ID is already the requested one
 
+      --compression <COMPRESSION>
+          Set the compression level of any modified compression blocks
+
+          [default: default]
+          [possible values: fastest, default, best]
+
       --dry-run
           Leave the container untouched and print out what would be done
 
   -h, --help
           Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
 ```
 
 ## Oodle

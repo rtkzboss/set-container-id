@@ -1,5 +1,5 @@
 # set_container_id
-
+[Download](https://github.com/rtkzboss/tools/releases/latest/download/set_container_id.exe)
 ```
 Set the container ID of an Unreal Engine 4.27 IoStore container
 
@@ -17,6 +17,9 @@ Arguments:
 Options:
       --force
           Rewrite the container even if its ID is already the requested one
+
+      --dry-run
+          Leave the container untouched and print out what would be done
 
   -h, --help
           Print help (see a summary with '-h')
